@@ -75,7 +75,9 @@
   memory_limit        = 256M
   date.timezone       = Asia/Shanghai
   ```
-- 登录态方式：管理员登录后拿到 32 字节随机 token（`users.auth_token`），前端放在 `Authorization: Bearer <token>` 请求头；有效期 24 小时（`AuthController::TOKEN_EXPIRE_HOURS`）。除登录、员工整改、图片上传外，管理端接口都挂了 `AuthMiddleware`，且中间件**只认 `role=admin`**。
+- 登录态方式：管理员/老板登录后拿到 32 字节随机 token（`users.auth_token`），前端放在 `Authorization: Bearer <token>` 请求头；有效期 24 小时（`AuthController::TOKEN_EXPIRE_HOURS`）。除登录、员工整改、图片上传外，后台接口都挂了 `AuthMiddleware`：
+  - 默认（不带参数）只放行 `role=admin`（用户管理、检查项、建/删记录、生成二维码等）；
+  - `/api/summary` 挂的是 `AuthMiddleware::class . ':admin,boss'`，**管理员与老板都能访问**，老板访问其他管理端接口会收到 `code:403 无权访问该功能`。
 
 ---
 
@@ -86,7 +88,7 @@
 
   | 表 | 关键字段 | 说明 |
   | --- | --- | --- |
-  | `users` | `username/password_hash/auth_token`（登录）、`token`（员工入口令牌）、`role`（`admin`/`employee`）、`is_active`（启用/禁用）、`qr_code_url` | 员工 `username` 为 NULL，不走登录 |
+  | `users` | `username/password_hash/auth_token`（登录）、`token`（员工入口令牌）、`role`（`admin`/`boss`/`employee`）、`is_active`（启用/禁用）、`qr_code_url` | 员工 `username` 为 NULL，不走登录；老板是独立账号，仅可看汇总 |
   | `inspection_items` | `name`、`score` | 检查项字典（地面清洁 -5 分等） |
   | `records` | `user_id`、`item_id`、`item_name_snapshot/item_score_snapshot`（扣分快照，防止字典改了历史跟着变）、`sequence_key`（每人每天从 1 连续编号）、`issue_image`、`fix_image`、`status`（`pending`/`completed`）、`check_date` | 一条记录 = 一张问题图 + 一张整改图 |
 
@@ -98,9 +100,11 @@
   docker compose exec -T db mysql -uroot -proot hygiene_audit < backend/database/migrate_add_check_date.sql
   # 快照字段 + is_active + 索引（综合迁移）
   docker compose exec -T db mysql -uroot -proot hygiene_audit < backend/database/migrate_add_snapshots.sql
+  # 独立老板账号 boss / boss123（已有库升级用；全新初始化由 init.sql 自动创建）
+  docker compose exec -T db mysql -uroot -proot hygiene_audit < backend/database/migrate_add_boss.sql
   ```
   若后端报「Unknown column 'check_date'」，执行对应迁移即可，接口本身也会返回中文提示引导执行。
-- 数据持久化：MySQL 数据在命名卷 `db_data` 中，`docker compose down` 不会丢数据；`docker compose down -v` 才会清空。
+- 数据持久化：MySQL 数据在命名卷 `db_data` 中；上传图片/二维码在命名卷 **`uploads_data`**（挂载到后端 `/app/public/uploads`）。`docker compose down`、`docker compose up --build`（重建镜像/容器）都不会丢数据；`docker compose down -v` 才会同时清空两个卷。
 
 ---
 
@@ -126,12 +130,7 @@ public/uploads/
     chown -R www-data:www-data backend/runtime backend/public/uploads
     chmod -R 755 backend/public/uploads
     ```
-- **重要（当前版本的坑）**：`docker-compose.yml` 目前**没有给 `public/uploads` 挂载卷**，图片只存在后端容器的可写层里。一旦执行 `docker compose up --build backend` 重建后端容器，所有上传图片（含二维码 PNG）都会丢失，数据库里只剩路径。生产或需要长期保留时，请在 `backend` 服务下加挂载：
-  ```yaml
-      volumes:
-        - uploads_data:/app/public/uploads
-  # 文件底部 volumes: 段同时加上  uploads_data:
-  ```
+- **持久化**：`docker-compose.yml` 已把命名卷 **`uploads_data`** 挂载到后端容器的 `/app/public/uploads`，因此 `docker compose up --build backend` 重建容器后，问题图、整改图与二维码 PNG 都不会丢失，数据库里的路径仍然有效。仅在执行 `docker compose down -v`（删除所有命名卷）时才会清空；备份方式见下文「备份：数据库与图片」。
 
 ---
 
@@ -192,19 +191,22 @@ docker compose exec -T db mysql -uroot -proot --default-character-set=utf8mb4 hy
 cat backup/uploads_20260913_120000.tar.gz | docker compose exec -T backend tar -C /app/public -xzf -
 ```
 
-建议配合系统 `cron` 每天各执行一次上面两条备份命令；正式环境请按上一节给 uploads 配置独立卷，备份/迁移会更可靠。
+建议配合系统 `cron` 每天各执行一次上面两条备份命令；uploads 已使用独立命名卷 `uploads_data`，备份/迁移时直接卷内打包即可。
 
 ---
 
 ## 三种角色演示流程
 
-> 角色现状说明（避免误解）：代码里实际只落地了 **admin（管理员）** 与 **employee（员工）** 两种角色（`users.role`，`AuthMiddleware` 只放行 admin）。**老板目前没有独立账号体系**，演示中老板与管理员共用同一个登录入口，但只使用「汇总看板」这一只读页面。下方第 3 节如实给出当前可走通的老板流程；若以后要严格分权，需要新增 `role=boss` 账号、让中间件放行 boss 访问 `/api/summary`、并在前端隐藏「检查上传 / 员工管理」菜单。
+> 角色体系：代码落地了 **admin（管理员）、boss（老板）、employee（员工）** 三种角色（`users.role`）。
+> - 管理员与老板共用同一个登录入口 `/login`，但权限不同：管理员能使用全部后台功能；**老板是独立账号，登录后只看到「汇总看板」**，前端隐藏了「检查上传 / 员工管理」菜单，后端也只有 `/api/summary` 对 boss 放行，其余管理端接口返回 403。
+> - 员工无账号密码，凭链接/二维码中的 `token` 进入 `/fix`。
 
 预置账号（`init.sql` Seed）：
 
 | 角色 | 身份 | 登录方式 |
 | --- | --- | --- |
 | 管理员 | 「管理员」 | 用户名 `admin` / 密码 `admin123`（首次登录后写入 password_hash，之后改密以此为准） |
+| 老板 | 「老板」 | 用户名 `boss` / 密码 `boss123`（首次登录后写入 password_hash），仅可访问汇总看板 |
 | 员工 | 张三 | 免登录，链接/扫码：`/fix?token=emp-token-001` |
 | 员工 | 李四 | 免登录，链接/扫码：`/fix?token=emp-token-002` |
 
@@ -229,16 +231,16 @@ cat backup/uploads_20260913_120000.tar.gz | docker compose exec -T backend tar -
 6. 回到管理员页面重新进入张三的记录或看板，新状态、新图片实时可见。
 7. 若该员工被管理员「禁用」，再次打开链接或上传会收到 403「账号已禁用」。
 
-### 流程 3：老板 —— 只看汇总（当前演示走法）
+### 流程 3：老板 —— 独立账号，只看汇总
 
-1. 老板打开 <http://localhost:3000>，当前版本用管理员账号 `admin / admin123` 登录（系统暂无独立老板账号）。
-2. 登录后直接进入「汇总看板」（`/summary`），**不操作**「检查上传」和「员工管理」两个菜单。
+1. 老板打开 <http://localhost:3000>，用**独立老板账号** `boss / boss123` 登录（与管理员入口同为 `/login`，但角色为 `boss`）。
+2. 登录后自动进入「汇总看板」（`/summary`）；顶部导航**只有「汇总看板」**，看不到「检查上传」「员工管理」。即使手动在地址栏输入 `/admin`、`/employees`，前端路由守卫也会把老板重定向回 `/summary`；直接用其 token 调管理端接口会收到 `code:403 无权访问该功能`（仅 `/api/summary` 与 `/api/auth/me` 放行 boss）。
 3. 看板按员工分组（张三、李四），每人显示：
    - 整改进度百分比与「已完成 / 总数」（如 1/3 → 33.3%，全部完成显示 100% 绿色）；
    - 扣分合计（取每条记录的分值快照求和，如 `-10分`）；
    - 每条记录一行：`#序号 + 检查项徽章 + 分值 + 待整改/已完成标签`，并把**问题图与整改图左右成对**展示，按 `#key` 升序。
 4. 对照演示：先让员工张三在流程 2 中补传一张整改图，老板刷新看板，可看到进度从 33.3% 变 66.7%、对应行出现绿色「已完成」和整改图。
-5. 演示讲解时可说明：老板视角只关心「谁还有几条没改、总共扣多少分、前后对比照片」；如需真正的分权（老板用独立账号登录、看不到管理菜单和接口），按本节开头的说明增加 `boss` 角色即可。
+5. 老板视角只关心「谁还有几条没改、总共扣多少分、前后对比照片」；老板无法拍照开单、无法管理员工（菜单、路由、接口三层均已限制）。
 
 ---
 

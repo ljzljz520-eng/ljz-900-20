@@ -11,7 +11,7 @@
           <el-icon><DataAnalysis /></el-icon>
         </div>
         <p class="empty-text">暂无汇总数据</p>
-        <p class="empty-hint">请在检查上传中创建记录</p>
+        <p class="empty-hint">{{ isBoss ? '员工完成整改后将在此展示' : '请在检查上传中创建记录' }}</p>
       </div>
 
       <div v-for="item in summary" :key="item.user?.id" class="summary-card">
@@ -80,9 +80,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { CircleCheck, DataAnalysis } from '@element-plus/icons-vue'
 import { api, apiBase } from '@/api/request'
+import { useAuth } from '@/composables/useAuth'
+
+const auth = useAuth()
+const isBoss = computed(() => auth.user.value?.role === 'boss')
 
 const loading = ref(true)
 const summary = ref([])

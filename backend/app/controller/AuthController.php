@@ -10,6 +10,7 @@ use think\Response;
 class AuthController
 {
     private const DEFAULT_ADMIN_PASSWORD = 'admin123';
+    private const DEFAULT_BOSS_PASSWORD = 'boss123';
     private const TOKEN_EXPIRE_HOURS = 24;
 
     /** 从请求中获取参数（支持 JSON body 和 form） */
@@ -39,14 +40,19 @@ class AuthController
                 return api_json(['code' => 400, 'message' => '用户名和密码不能为空', 'data' => null]);
             }
 
-            $user = User::where('username', $username)->where('role', 'admin')->find();
+            // 允许管理员与老板使用同一登录入口（employee 无 username，无法登录）
+            $user = User::where('username', $username)->whereIn('role', ['admin', 'boss'])->find();
             if (!$user) {
                 return api_json(['code' => 401, 'message' => '用户名或密码错误', 'data' => null]);
             }
 
+            $defaultPassword = $user->role === 'boss'
+                ? self::DEFAULT_BOSS_PASSWORD
+                : self::DEFAULT_ADMIN_PASSWORD;
+
             $valid = false;
             if (empty($user->password_hash)) {
-                if ($password === self::DEFAULT_ADMIN_PASSWORD) {
+                if ($password === $defaultPassword) {
                     $valid = true;
                     $user->password_hash = password_hash($password, PASSWORD_DEFAULT);
                     $user->save();
@@ -95,7 +101,7 @@ class AuthController
             }
 
             $user = User::where('auth_token', $token)
-                ->where('role', 'admin')
+                ->whereIn('role', ['admin', 'boss'])
                 ->where('auth_token_expires', '>', date('Y-m-d H:i:s'))
                 ->find();
 

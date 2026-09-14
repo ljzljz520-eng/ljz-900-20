@@ -3,7 +3,7 @@
     <header class="main-header">
       <div class="main-header-inner">
         <div class="main-brand">
-          <router-link to="/admin" class="brand-link">
+          <router-link :to="homePath" class="brand-link">
             <div class="brand-logo">
               <svg viewBox="0 0 32 32" fill="none">
                 <rect width="32" height="32" rx="8" fill="url(#brand-grad)" />
@@ -21,22 +21,27 @@
         </div>
 
         <nav class="main-nav">
-          <router-link to="/admin" class="nav-link" :class="{ active: $route.path === '/admin' }">
-            <el-icon><DocumentChecked /></el-icon>
-            <span>检查上传</span>
-          </router-link>
-          <router-link to="/employees" class="nav-link" :class="{ active: $route.path === '/employees' }">
-            <el-icon><User /></el-icon>
-            <span>员工管理</span>
-          </router-link>
-          <router-link to="/summary" class="nav-link" :class="{ active: $route.path === '/summary' }">
+          <template v-if="isAdmin">
+            <router-link to="/admin" class="nav-link" :class="{ active: $route.path === '/admin' }">
+              <el-icon><DocumentChecked /></el-icon>
+              <span>检查上传</span>
+            </router-link>
+            <router-link to="/employees" class="nav-link" :class="{ active: $route.path === '/employees' }">
+              <el-icon><User /></el-icon>
+              <span>员工管理</span>
+            </router-link>
+          </template>
+          <router-link v-if="canViewSummary" to="/summary" class="nav-link" :class="{ active: $route.path === '/summary' }">
             <el-icon><DataAnalysis /></el-icon>
             <span>汇总看板</span>
           </router-link>
         </nav>
 
         <div class="main-header-right">
-          <span v-if="auth.user?.name" class="header-user">{{ auth.user.name }}</span>
+          <span v-if="auth.user?.name" class="header-user">
+            {{ auth.user.name }}
+            <el-tag v-if="roleTag" size="small" :type="roleTagType" effect="plain" class="header-role-tag">{{ roleTag }}</el-tag>
+          </span>
           <el-button type="primary" link class="logout-btn" :loading="logoutLoading" @click="handleLogout">
             <el-icon><SwitchButton /></el-icon>
             <span>退出登录</span>
@@ -56,14 +61,25 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { DocumentChecked, DataAnalysis, User, SwitchButton } from '@element-plus/icons-vue'
 import { useAuth } from '@/composables/useAuth'
+import { homePathByRole } from '@/router'
 
 const router = useRouter()
 const auth = useAuth()
 const logoutLoading = ref(false)
+
+const isAdmin = computed(() => auth.user.value?.role === 'admin')
+const canViewSummary = computed(() => ['admin', 'boss'].includes(auth.user.value?.role))
+const homePath = computed(() => homePathByRole(auth.user.value?.role))
+const roleTag = computed(() => {
+  if (auth.user.value?.role === 'boss') return '老板'
+  if (auth.user.value?.role === 'admin') return '管理员'
+  return ''
+})
+const roleTagType = computed(() => (auth.user.value?.role === 'boss' ? 'warning' : 'primary'))
 
 onMounted(() => {
   if (auth.token && !auth.user) {
@@ -166,6 +182,10 @@ async function handleLogout() {
 .header-user {
   font-size: 14px;
   color: #64748b;
+}
+
+.header-role-tag {
+  margin-left: 6px;
 }
 
 .logout-btn {

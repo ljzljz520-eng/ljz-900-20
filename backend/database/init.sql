@@ -44,11 +44,14 @@ CREATE TABLE IF NOT EXISTS `records` (
   KEY `user_check_date` (`user_id`, `check_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- Seed: admin (username=admin, password=admin123 on first login), employees, inspection items, records
+-- Seed: admin (username=admin, password=admin123 on first login),
+--       boss  (username=boss,  password=boss123  on first login, 只读汇总看板),
+--       employees, inspection items, records
 INSERT INTO `users` (`name`, `username`, `password_hash`, `token`, `role`, `is_active`) VALUES
 ('管理员', 'admin', NULL, 'admin-token-001', 'admin', 1),
 ('张三', NULL, NULL, 'emp-token-001', 'employee', 1),
-('李四', NULL, NULL, 'emp-token-002', 'employee', 1);
+('李四', NULL, NULL, 'emp-token-002', 'employee', 1),
+('老板', 'boss', NULL, 'boss-token-001', 'boss', 1);
 
 INSERT INTO `inspection_items` (`name`, `score`) VALUES
 ('地面清洁', 5),

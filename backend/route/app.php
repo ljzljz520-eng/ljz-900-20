@@ -29,7 +29,8 @@ Route::put('/api/records/:id/fix', [RecordController::class, 'uploadFix']);
 // 图片上传同时服务于管理员端与员工整改端，这里放宽登录限制，由业务自身校验
 Route::post('/api/upload/image', [UploadController::class, 'image']);
 Route::post('/api/qr/generate', [QrController::class, 'generate'])->middleware(AuthMiddleware::class);
-Route::get('/api/summary', [SummaryController::class, 'index'])->middleware(AuthMiddleware::class);
+// 汇总看板：管理员与老板（只读）均可访问
+Route::get('/api/summary', [SummaryController::class, 'index'])->middleware(AuthMiddleware::class . ':admin,boss');
 Route::get('/', function () {
     return json(['code' => 0, 'message' => 'Hygiene Audit API', 'data' => null]);
 });

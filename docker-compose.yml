@@ -31,6 +31,9 @@ services:
       DB_USER: root
       DB_PASSWORD: root
       DB_CHARSET: utf8mb4
+    volumes:
+      # 上传图片与二维码的独立持久化卷：重建/升级后端容器不丢图
+      - uploads_data:/app/public/uploads
 
   frontend:
     build:
@@ -44,3 +47,4 @@ services:
 
 volumes:
   db_data:
+  uploads_data:

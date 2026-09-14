@@ -65,6 +65,19 @@
             </el-button>
           </el-form-item>
         </el-form>
+
+        <div class="login-hint">
+          <div class="hint-row">
+            <span class="hint-role">管理员</span>
+            <code @click="fillDemo('admin', 'admin123')">admin / admin123</code>
+            <span class="hint-desc">检查上传 · 员工管理 · 汇总看板</span>
+          </div>
+          <div class="hint-row">
+            <span class="hint-role boss">老板</span>
+            <code @click="fillDemo('boss', 'boss123')">boss / boss123</code>
+            <span class="hint-desc">仅汇总看板（只读）</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -75,6 +88,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useAuth } from '@/composables/useAuth'
+import { homePathByRole } from '@/router'
 
 const router = useRouter()
 const route = useRoute()
@@ -92,15 +106,33 @@ const rules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
+function fillDemo(username, password) {
+  form.username = username
+  form.password = password
+}
+
+// 根据登录角色选择落地页，并尊重对该角色合法的 redirect 参数
+function landingPath(user) {
+  const redirect = route.query.redirect
+  if (redirect && typeof redirect === 'string' && router.resolve(redirect).matched.length) {
+    const roles = router.resolve(redirect).matched.flatMap((r) =>
+      Array.isArray(r.meta?.roles) ? r.meta.roles : []
+    )
+    if (roles.length === 0 || roles.includes(user?.role)) {
+      return redirect
+    }
+  }
+  return homePathByRole(user?.role)
+}
+
 async function handleLogin() {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
     if (!valid) return
     loading.value = true
     try {
-      await auth.login(form.username.trim(), form.password)
-      const redirect = route.query.redirect || '/admin'
-      router.replace(redirect)
+      const data = await auth.login(form.username.trim(), form.password)
+      router.replace(landingPath(data?.user))
     } catch (_) {
       // 错误已在 request 拦截器中提示
     } finally {
@@ -113,7 +145,7 @@ onMounted(async () => {
   if (!auth.token) return
   try {
     const user = await auth.fetchUser()
-    if (user) router.replace(route.query.redirect || '/admin')
+    if (user) router.replace(landingPath(user))
   } catch {
     auth.clearAuth()
   }
@@ -255,9 +287,53 @@ onMounted(async () => {
 }
 
 .login-hint {
-  text-align: center;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hint-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 12px;
   color: #94a3b8;
-  margin: 16px 0 0;
+  flex-wrap: wrap;
+}
+
+.hint-role {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
+  font-weight: 600;
+}
+
+.hint-role.boss {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+}
+
+.hint-row code {
+  cursor: pointer;
+  color: #475569;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.hint-row code:hover {
+  background: #e2e8f0;
+}
+
+.hint-desc {
+  color: #cbd5e1;
 }
 </style>
