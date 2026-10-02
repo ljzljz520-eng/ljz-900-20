@@ -6,6 +6,8 @@
 - **Backend**: PHP 8 + ThinkPHP 8
 - **Database**: MySQL 8.0（utf8mb4）
 
+> 部署细节（Nginx / PHP-FPM / 数据库连接 / 上传目录权限 / 二维码访问域名 / 图片备份）与管理员、员工、老板三种角色的演示流程，见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
 ## 启动指南 (How to Run)
 
 1. 确保 Docker Desktop 已启动。
